@@ -1,6 +1,6 @@
 # Vision Tracker
 
-[![CI](https://github.com/YOUR_USERNAME/vision-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/vision-tracker/actions/workflows/ci.yml)
+[![CI](https://github.com/NeuralNomad7/vision-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/NeuralNomad7/vision-tracker/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -44,7 +44,7 @@ Real-time robotic perception system that tracks brightly colored objects via web
 ### Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/vision-tracker.git
+git clone https://github.com/NeuralNomad7/vision-tracker.git
 cd vision-tracker
 python -m venv venv
 source venv/bin/activate   # Windows: venv\Scripts\activate
