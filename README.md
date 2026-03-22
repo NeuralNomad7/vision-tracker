@@ -6,6 +6,8 @@
 
 Real-time robotic perception system that tracks brightly colored objects via webcam and outputs target vectors for robotic arm control. Built with OpenCV and hardened for production use.
 
+![Demo](assets/demo.gif)
+
 ## Features
 
 - **Kalman-filtered tracking** — 4-state filter (position + velocity) for smooth, predictive object tracking
@@ -18,26 +20,7 @@ Real-time robotic perception system that tracks brightly colored objects via web
 
 ## Architecture
 
-```
-┌──────────┐    ┌──────────────┐    ┌──────────────┐    ┌────────────┐
-│  Webcam  │───>│ HSV Masking  │───>│  Contour     │───>│  Kalman    │
-│  (0-N)   │    │ (2-channel)  │    │  Detection   │    │  Filter    │
-└──────────┘    └──────────────┘    └──────────────┘    └─────┬──────┘
-                      ▲                                       │
-                      │                                       ▼
-               ┌──────┴───────┐                  ┌────────────────────┐
-               │ HSV Sliders  │                  │  Multi-Object      │
-               │ (live tune)  │                  │  Matcher (greedy   │
-               └──────────────┘                  │  nearest-neighbor) │
-                                                 └─────┬──────┬──────┘
-                                                       │      │
-                                          ┌────────────┘      └────────────┐
-                                          ▼                                ▼
-                                   ┌─────────────┐                 ┌──────────────┐
-                                   │ Serial Out   │                 │  CSV Logger   │
-                                   │ (30 Hz)      │                 │  (every frame)│
-                                   └─────────────┘                 └──────────────┘
-```
+![Architecture](assets/architecture.png)
 
 ## Quick Start
 
@@ -159,7 +142,13 @@ The tracker uses a pinhole camera model. To calibrate for your setup:
 ```
 vision-tracker/
 ├── .github/workflows/ci.yml   # GitHub Actions CI pipeline
+├── assets/                     # Demo visuals for README
+│   ├── architecture.png        # System architecture diagram
+│   ├── demo.gif                # Animated demo of tracker HUD
+│   ├── demo.mp4                # Full-quality demo video
+│   └── demo_screenshot.png     # Static screenshot
 ├── logs/                       # CSV tracking logs (gitignored)
+├── generate_demo.py            # Script to regenerate demo assets
 ├── vision_tracker.py           # Main application
 ├── requirements.txt            # Pinned Python dependencies
 ├── setup.cfg                   # Flake8 linting configuration
