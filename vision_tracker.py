@@ -12,6 +12,7 @@ import atexit
 import csv
 import cv2
 import logging
+import math
 import numpy as np
 import os
 import re
@@ -438,6 +439,104 @@ def validate_baud_rate(baud):
     return baud
 
 
+# ── Demo Frame Generator ────────────────────────────────────
+class DemoFrameGenerator:
+    """Generates synthetic 640x480 BGR frames with moving colored objects.
+
+    Objects are colored to fall within the default HSV detection ranges so
+    the existing pipeline picks them up without recalibration.
+    """
+
+    WIDTH = 640
+    HEIGHT = 480
+    RADIUS = 30
+
+    # BGR colors chosen so that their HSV equivalents land inside HSV_DEFAULTS.
+    # ch1 (green): HSV ~60, 255, 200  -> BGR (0, 200, 0)
+    # ch2 (pink/magenta): HSV ~158, 200, 240  -> BGR (240, 60, 210)
+    # ch1 (yellow-green): HSV ~50, 200, 220  -> BGR (55, 220, 110)
+    OBJ_COLORS_BGR = [
+        (0, 200, 0),       # green  - detected by ch1 (H 35-85)
+        (240, 60, 210),    # pink   - detected by ch2 (H 140-175)
+        (55, 220, 110),    # yellow-green - detected by ch1 (H 35-85)
+    ]
+
+    def __init__(self):
+        self._tick = 0
+        # Bouncing object state (object 3)
+        self._bounce_x = 200.0
+        self._bounce_y = 150.0
+        self._bounce_vx = 3.2
+        self._bounce_vy = 2.4
+        self._rng = np.random.default_rng(42)
+
+    def read(self):
+        """Mimic cv2.VideoCapture.read() -> (bool, frame)."""
+        frame = np.full((self.HEIGHT, self.WIDTH, 3), 25, dtype=np.uint8)
+        self._draw_grid(frame)
+
+        t = self._tick * 0.03  # time parameter
+        pad = self.RADIUS + 5  # wall padding
+        hw, hh = self.WIDTH // 2, self.HEIGHT // 2
+
+        # Object 1: circular orbit around center
+        r1 = 120
+        x1 = hw + r1 * math.cos(t) + self._noise()
+        y1 = hh + r1 * math.sin(t) + self._noise()
+        cv2.circle(frame, (int(x1), int(y1)), self.RADIUS,
+                   self.OBJ_COLORS_BGR[0], -1)
+
+        # Object 2: figure-8 / Lissajous pattern
+        x2 = hw + 160 * math.sin(t) + self._noise()
+        y2 = hh + 100 * math.sin(2 * t) + self._noise()
+        cv2.circle(frame, (int(x2), int(y2)), self.RADIUS - 3,
+                   self.OBJ_COLORS_BGR[1], -1)
+
+        # Object 3: bouncing off walls
+        self._bounce_x += self._bounce_vx
+        self._bounce_y += self._bounce_vy
+        if self._bounce_x < pad or self._bounce_x > self.WIDTH - pad:
+            self._bounce_vx *= -1
+            self._bounce_x = np.clip(self._bounce_x, pad, self.WIDTH - pad)
+        if self._bounce_y < pad or self._bounce_y > self.HEIGHT - pad:
+            self._bounce_vy *= -1
+            self._bounce_y = np.clip(self._bounce_y, pad, self.HEIGHT - pad)
+        bx = self._bounce_x + self._noise()
+        by = self._bounce_y + self._noise()
+        cv2.circle(frame, (int(bx), int(by)), self.RADIUS + 2,
+                   self.OBJ_COLORS_BGR[2], -1)
+
+        # "DEMO MODE" label
+        cv2.putText(frame, "DEMO MODE", (10, 25),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 180, 255), 2)
+
+        self._tick += 1
+        return True, frame
+
+    def _noise(self):
+        return float(self._rng.normal(0, 1.5))
+
+    def _draw_grid(self, frame):
+        color = (40, 40, 40)
+        for x in range(0, self.WIDTH, 40):
+            cv2.line(frame, (x, 0), (x, self.HEIGHT), color, 1)
+        for y in range(0, self.HEIGHT, 40):
+            cv2.line(frame, (0, y), (self.WIDTH, y), color, 1)
+
+    def isOpened(self):
+        return True
+
+    def get(self, prop):
+        if prop == cv2.CAP_PROP_FRAME_WIDTH:
+            return float(self.WIDTH)
+        if prop == cv2.CAP_PROP_FRAME_HEIGHT:
+            return float(self.HEIGHT)
+        return 0.0
+
+    def release(self):
+        pass
+
+
 # ── CLI ──────────────────────────────────────────────────────
 def parse_args():
     p = argparse.ArgumentParser(
@@ -464,6 +563,9 @@ def parse_args():
     p.add_argument(
         "--verbose", "-v", action="store_true",
         help="Enable DEBUG-level logging")
+    p.add_argument(
+        "--demo", action="store_true",
+        help="Run with synthetic demo frames (no webcam needed)")
     return p.parse_args()
 
 
@@ -494,12 +596,15 @@ def main():
     if csv_path:
         csv_path = validate_csv_path(csv_path)
 
-    cap = cv2.VideoCapture(args.camera)
-    if not cap.isOpened():
-        log.error("Cannot open webcam (index %d).", args.camera)
-        sys.exit(1)
-
-    time.sleep(0.5)
+    if args.demo:
+        cap = DemoFrameGenerator()
+        log.info("Demo mode: using synthetic frame generator (no webcam).")
+    else:
+        cap = cv2.VideoCapture(args.camera)
+        if not cap.isOpened():
+            log.error("Cannot open webcam (index %d).", args.camera)
+            sys.exit(1)
+        time.sleep(0.5)
     frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cx, cy = frame_w // 2, frame_h // 2

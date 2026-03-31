@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vision Tracker — Real-Time Robotic Perception</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --blue: #0b3d91;
+    --blue-light: #1a6fd4;
+    --blue-glow: #3b8eed;
+    --dark: #1d1d1f;
+    --gray-text: #6e6e73;
+    --bg-white: #ffffff;
+    --bg-alt: #f5f5f7;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--font);
+    color: var(--dark);
+    background: var(--bg-white);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* ---------- reveal animation ---------- */
+  .reveal {
+    opacity: 0;
+    transform: translateY(40px);
+    transition: opacity 0.8s cubic-bezier(.16,1,.3,1), transform 0.8s cubic-bezier(.16,1,.3,1);
+  }
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ---------- hero ---------- */
+  .hero {
+    position: relative;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, #0b3d91, #1a6fd4, #0b3d91, #06214f);
+    background-size: 400% 400%;
+    animation: gradientShift 12s ease infinite;
+    z-index: 0;
+  }
+  @keyframes gradientShift {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  .hero-content { position: relative; z-index: 1; padding: 2rem; }
+  .hero h1 {
+    font-size: clamp(3rem, 8vw, 7rem);
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+  }
+  .hero .version {
+    display: inline-block;
+    font-size: 1rem;
+    font-weight: 500;
+    background: rgba(255,255,255,0.15);
+    backdrop-filter: blur(8px);
+    color: rgba(255,255,255,0.9);
+    padding: 0.3rem 1rem;
+    border-radius: 100px;
+    margin-bottom: 1.5rem;
+    letter-spacing: 0.05em;
+  }
+  .hero p {
+    font-size: clamp(1.1rem, 2.5vw, 1.6rem);
+    color: rgba(255,255,255,0.85);
+    max-width: 640px;
+    margin: 1.2rem auto 0;
+    font-weight: 400;
+    line-height: 1.5;
+  }
+  .hero .scroll-hint {
+    position: absolute;
+    bottom: 2.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1;
+    color: rgba(255,255,255,0.5);
+    font-size: 0.85rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    animation: bob 2s ease-in-out infinite;
+  }
+  @keyframes bob {
+    0%, 100% { transform: translateX(-50%) translateY(0); }
+    50% { transform: translateX(-50%) translateY(8px); }
+  }
+
+  /* ---------- shared section ---------- */
+  section { padding: 7rem 2rem; }
+  .container { max-width: 1080px; margin: 0 auto; }
+  .section-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--blue-light);
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+  }
+  .section-heading {
+    font-size: clamp(2rem, 4vw, 3rem);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+    margin-bottom: 1.5rem;
+  }
+  .section-body {
+    font-size: 1.15rem;
+    color: var(--gray-text);
+    line-height: 1.7;
+    max-width: 720px;
+  }
+  .alt-bg { background: var(--bg-alt); }
+
+  /* ---------- problem ---------- */
+  .problem .section-body { max-width: 700px; }
+
+  /* ---------- solution ---------- */
+  .solution .highlight-list {
+    list-style: none;
+    margin-top: 2rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  .solution .highlight-list li {
+    background: var(--bg-alt);
+    padding: 0.55rem 1.2rem;
+    border-radius: 100px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--dark);
+  }
+
+  /* ---------- features ---------- */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 3rem;
+    margin-top: 3.5rem;
+  }
+  .feature-card { text-align: center; }
+  .feature-icon {
+    font-size: 3.5rem;
+    margin-bottom: 1.25rem;
+    display: block;
+  }
+  .feature-card h3 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    margin-bottom: 0.6rem;
+  }
+  .feature-card p {
+    font-size: 1rem;
+    color: var(--gray-text);
+    line-height: 1.6;
+    max-width: 320px;
+    margin: 0 auto;
+  }
+
+  /* ---------- production ---------- */
+  .prod-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    margin-top: 2rem;
+  }
+  .prod-pills span {
+    background: var(--blue);
+    color: #fff;
+    padding: 0.5rem 1.2rem;
+    border-radius: 100px;
+    font-size: 0.9rem;
+    font-weight: 500;
+  }
+
+  /* ---------- use cases ---------- */
+  .use-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1.5rem;
+    margin-top: 3rem;
+  }
+  .use-card {
+    background: var(--bg-white);
+    border: 1px solid #e5e5ea;
+    border-radius: 16px;
+    padding: 2rem;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  .use-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.08);
+  }
+  .use-card .uc-icon { font-size: 2rem; margin-bottom: 0.75rem; display: block; }
+  .use-card h4 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.4rem; }
+  .use-card p { font-size: 0.92rem; color: var(--gray-text); line-height: 1.55; }
+
+  /* ---------- numbers ---------- */
+  .numbers { background: var(--blue); color: #fff; text-align: center; }
+  .numbers .section-label { color: rgba(255,255,255,0.6); }
+  .numbers .section-heading { color: #fff; }
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 2.5rem;
+    margin-top: 3.5rem;
+  }
+  .stat-item .stat-number {
+    font-size: clamp(2.5rem, 5vw, 3.8rem);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+  .stat-item .stat-label {
+    font-size: 0.9rem;
+    margin-top: 0.5rem;
+    color: rgba(255,255,255,0.7);
+    font-weight: 400;
+  }
+
+  /* ---------- tech stack ---------- */
+  .stack-bar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1.5rem;
+    margin-top: 2.5rem;
+  }
+  .stack-item {
+    background: var(--bg-white);
+    border: 1px solid #e5e5ea;
+    border-radius: 12px;
+    padding: 1.2rem 2.2rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--dark);
+    transition: transform 0.2s ease;
+  }
+  .stack-item:hover { transform: scale(1.05); }
+
+  /* ---------- CTA ---------- */
+  .cta {
+    text-align: center;
+    background: var(--dark);
+    color: #fff;
+    padding: 7rem 2rem;
+  }
+  .cta .section-heading { color: #fff; }
+  .cta .demo-box {
+    display: inline-block;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 12px;
+    padding: 1rem 2rem;
+    margin-top: 2rem;
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    font-size: 1.1rem;
+    color: var(--blue-glow);
+    letter-spacing: 0.02em;
+  }
+  .cta .demo-note {
+    margin-top: 1rem;
+    font-size: 0.9rem;
+    color: rgba(255,255,255,0.5);
+  }
+
+  /* ---------- footer ---------- */
+  footer {
+    text-align: center;
+    padding: 2.5rem 2rem;
+    font-size: 0.8rem;
+    color: var(--gray-text);
+    background: var(--bg-alt);
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 600px) {
+    section { padding: 5rem 1.5rem; }
+    .features-grid { gap: 2.5rem; }
+    .stats-row { gap: 2rem; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-content">
+    <span class="version">v3.1</span>
+    <h1>Vision Tracker</h1>
+    <p>Real-Time Robotic Perception for Physical AI</p>
+  </div>
+  <div class="scroll-hint">Scroll to explore</div>
+</section>
+
+<!-- The Problem -->
+<section class="problem">
+  <div class="container reveal">
+    <p class="section-label">The Problem</p>
+    <h2 class="section-heading">Robots are blind without reliable perception.</h2>
+    <p class="section-body">
+      To interact with the physical world, robots need real-time, low-latency
+      object tracking they can trust. Existing computer vision solutions are
+      expensive, fragile under real-world conditions, or introduce latency
+      that makes closed-loop control impossible. The gap between "works in
+      the lab" and "works on the factory floor" remains enormous.
+    </p>
+  </div>
+</section>
+
+<!-- Our Solution -->
+<section class="solution alt-bg">
+  <div class="container reveal">
+    <p class="section-label">Our Solution</p>
+    <h2 class="section-heading">Lightweight. Production-hardened.<br>Runs on commodity hardware.</h2>
+    <p class="section-body">
+      Vision Tracker delivers Kalman-filtered, multi-object tracking with
+      sub-pixel accuracy over a standard webcam. No GPU required. No cloud
+      dependency. Just deterministic, real-time perception that streams
+      target vectors directly to your robot controller.
+    </p>
+    <ul class="highlight-list">
+      <li>OpenCV + Kalman Filtering</li>
+      <li>Sub-pixel Accuracy</li>
+      <li>30 Hz Deterministic Output</li>
+      <li>Zero Cloud Dependencies</li>
+      <li>Commodity USB Cameras</li>
+      <li>Plug-and-Play Serial</li>
+    </ul>
+  </div>
+</section>
+
+<!-- Feature Showcase -->
+<section>
+  <div class="container">
+    <div class="reveal" style="text-align:center;">
+      <p class="section-label">Capabilities</p>
+      <h2 class="section-heading">Three pillars of reliable perception.</h2>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card reveal">
+        <span class="feature-icon">&#x1F3AF;</span>
+        <h3>Multi-Object Tracking</h3>
+        <p>Track up to 10 color-segmented objects simultaneously with persistent
+        IDs, HSV calibration, and distance estimation across the full frame.</p>
+      </div>
+      <div class="feature-card reveal">
+        <span class="feature-icon">&#x26A1;</span>
+        <h3>Predictive Filtering</h3>
+        <p>4-state Kalman filter predicts object trajectories through occlusions
+        and noise, maintaining lock even when vision momentarily fails.</p>
+      </div>
+      <div class="feature-card reveal">
+        <span class="feature-icon">&#x1F916;</span>
+        <h3>Robot Integration</h3>
+        <p>Streams target vectors at 30 Hz over serial with sub-millisecond
+        precision. CSV logging captures every data point for post-hoc analysis.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Built for Production -->
+<section class="alt-bg">
+  <div class="container reveal">
+    <p class="section-label">Reliability</p>
+    <h2 class="section-heading">Built for production, not just demos.</h2>
+    <p class="section-body">
+      Vision Tracker is engineered for environments where downtime costs money.
+      Every failure mode has a recovery path. Every edge case has a handler.
+    </p>
+    <div class="prod-pills">
+      <span>Graceful Degradation</span>
+      <span>Serial Recovery</span>
+      <span>Signal Handling</span>
+      <span>Input Validation</span>
+      <span>Throttled Output</span>
+      <span>Watchdog Timers</span>
+      <span>Error Logging</span>
+    </div>
+  </div>
+</section>
+
+<!-- Use Cases -->
+<section>
+  <div class="container">
+    <div class="reveal" style="text-align:center;">
+      <p class="section-label">Applications</p>
+      <h2 class="section-heading">From warehouses to open sky.</h2>
+    </div>
+    <div class="use-grid">
+      <div class="use-card reveal">
+        <span class="uc-icon">&#x1F4E6;</span>
+        <h4>Warehouse Picking</h4>
+        <p>Guide robotic arms to pick targets on moving conveyors with real-time position updates.</p>
+      </div>
+      <div class="use-card reveal">
+        <span class="uc-icon">&#x2699;</span>
+        <h4>Assembly Line QA</h4>
+        <p>Detect misaligned or missing components at line speed without slowing throughput.</p>
+      </div>
+      <div class="use-card reveal">
+        <span class="uc-icon">&#x1F681;</span>
+        <h4>Drone Navigation</h4>
+        <p>Provide low-latency visual servoing for autonomous landing and obstacle avoidance.</p>
+      </div>
+      <div class="use-card reveal">
+        <span class="uc-icon">&#x1F697;</span>
+        <h4>Autonomous Vehicles</h4>
+        <p>Supplement LIDAR with lightweight color-based tracking for close-range object detection.</p>
+      </div>
+      <div class="use-card reveal">
+        <span class="uc-icon">&#x1F33E;</span>
+        <h4>Agricultural Robotics</h4>
+        <p>Identify and track fruit, weeds, or rows for precision harvesting and spraying.</p>
+      </div>
+      <div class="use-card reveal">
+        <span class="uc-icon">&#x1F52C;</span>
+        <h4>Research Labs</h4>
+        <p>Rapid prototyping of perception pipelines with full CSV data export and replay.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- By the Numbers -->
+<section class="numbers">
+  <div class="container reveal">
+    <p class="section-label">By the Numbers</p>
+    <h2 class="section-heading">Performance that speaks for itself.</h2>
+    <div class="stats-row">
+      <div class="stat-item">
+        <div class="stat-number"><span class="counter" data-target="30">0</span> Hz</div>
+        <div class="stat-label">Output Frequency</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-number"><span class="counter" data-target="10">0</span> Objects</div>
+        <div class="stat-label">Simultaneous Tracking</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-number">&lt;<span class="counter" data-target="1">0</span> ms</div>
+        <div class="stat-label">Processing Latency</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-number"><span class="counter" data-target="4">0</span>-State</div>
+        <div class="stat-label">Kalman Filter</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-number"><span class="counter" data-target="99.9" data-decimals="1">0</span>%</div>
+        <div class="stat-label">Uptime</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Tech Stack -->
+<section class="alt-bg">
+  <div class="container reveal" style="text-align:center;">
+    <p class="section-label">Tech Stack</p>
+    <h2 class="section-heading">Built on proven foundations.</h2>
+    <div class="stack-bar">
+      <div class="stack-item">Python</div>
+      <div class="stack-item">OpenCV</div>
+      <div class="stack-item">NumPy</div>
+      <div class="stack-item">pyserial</div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+  <div class="container reveal">
+    <p class="section-label" style="color:rgba(255,255,255,0.5);">Get Started</p>
+    <h2 class="section-heading">Ready to See It Live?</h2>
+    <div class="demo-box">python vision_tracker.py --demo</div>
+    <p class="demo-note">Run with --demo to see real-time tracking with simulated objects. No hardware required.</p>
+  </div>
+</section>
+
+<footer>
+  Vision Tracker v3.1 &mdash; Real-Time Robotic Perception
+</footer>
+
+<script>
+(function() {
+  /* ---------- IntersectionObserver reveal ---------- */
+  const reveals = document.querySelectorAll('.reveal');
+  const observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.15 });
+  reveals.forEach(function(el) { observer.observe(el); });
+
+  /* ---------- animated counters ---------- */
+  const counters = document.querySelectorAll('.counter');
+  let countersDone = false;
+
+  const counterObserver = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting && !countersDone) {
+        countersDone = true;
+        counters.forEach(function(c) { animateCounter(c); });
+        counterObserver.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.3 });
+
+  var statsSection = document.querySelector('.numbers');
+  if (statsSection) counterObserver.observe(statsSection);
+
+  function animateCounter(el) {
+    var target = parseFloat(el.getAttribute('data-target'));
+    var decimals = parseInt(el.getAttribute('data-decimals') || '0', 10);
+    var duration = 1600;
+    var start = performance.now();
+
+    function step(now) {
+      var progress = Math.min((now - start) / duration, 1);
+      /* ease out cubic */
+      var ease = 1 - Math.pow(1 - progress, 3);
+      var current = ease * target;
+      el.textContent = decimals > 0 ? current.toFixed(decimals) : Math.round(current);
+      if (progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+})();
+</script>
+</body>
+</html>
