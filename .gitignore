@@ -26,6 +26,9 @@ desktop.ini
 
 # Project
 logs/*.csv
+calibration.json
+*.pt
+*.onnx
 .env
 .env.*
 
