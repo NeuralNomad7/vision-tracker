@@ -44,6 +44,10 @@ def setup_logging(level=logging.INFO):
 MIN_CONTOUR_AREA = 800
 MAX_OBJECTS = 10
 MAX_OBJECT_ID = 9999          # wrap IDs for bounded serial/CSV output
+# Reserve ID ranges to prevent collisions between auto-assigned and
+# external (marker-derived) IDs
+AUTO_ID_MIN, AUTO_ID_MAX = 1, 4999
+EXT_ID_MIN, EXT_ID_MAX = 5000, 9999
 SMOOTHING_WINDOW = 8
 MATCH_DISTANCE_THRESH = 100
 OBJECT_TIMEOUT = 0.6
@@ -133,15 +137,15 @@ class TrackedObject:
                  external_id=None, class_name=None, confidence=1.0,
                  rvec=None, tvec=None):
         if external_id is not None:
-            # ArUco-style stable ID from the marker itself
-            self.obj_id = int(external_id) % (MAX_OBJECT_ID + 1)
-            if self.obj_id == 0:
-                self.obj_id = MAX_OBJECT_ID
+            # ArUco-style stable ID: map into reserved external range to
+            # prevent collision with auto-assigned IDs.
+            span = EXT_ID_MAX - EXT_ID_MIN + 1
+            self.obj_id = EXT_ID_MIN + (int(external_id) % span)
         else:
             self.obj_id = TrackedObject._next_id
             TrackedObject._next_id += 1
-            if TrackedObject._next_id > MAX_OBJECT_ID:
-                TrackedObject._next_id = 1
+            if TrackedObject._next_id > AUTO_ID_MAX:
+                TrackedObject._next_id = AUTO_ID_MIN
         self.external_id = external_id
         self.class_name = class_name
         self.confidence = confidence
@@ -364,8 +368,27 @@ def synth_camera_matrix(w: int, h: int, hfov_deg: float = DEFAULT_HFOV_DEG):
 def load_intrinsics_json(path: str):
     with open(path, "r") as f:
         data = json.load(f)
-    K = np.array(data["camera_matrix"], dtype=np.float64).reshape(3, 3)
-    D = np.array(data.get("dist_coeffs", [0, 0, 0, 0, 0]), dtype=np.float64).ravel()
+    if "camera_matrix" not in data:
+        raise ValueError("intrinsics JSON missing required key 'camera_matrix'")
+    try:
+        K = np.array(data["camera_matrix"], dtype=np.float64).reshape(3, 3)
+    except (ValueError, TypeError) as e:
+        raise ValueError(
+            "intrinsics 'camera_matrix' must be a 3x3 nested list "
+            "(9 numeric values); got shape incompatible with (3,3)"
+        ) from e
+    raw_d = data.get("dist_coeffs", [0, 0, 0, 0, 0])
+    try:
+        D = np.array(raw_d, dtype=np.float64).ravel()
+    except (ValueError, TypeError) as e:
+        raise ValueError("intrinsics 'dist_coeffs' must be a numeric list") from e
+    if D.size < 4:
+        raise ValueError(
+            f"intrinsics 'dist_coeffs' must have >=4 elements (got {D.size})"
+        )
+    # Sanity check: positive focal lengths
+    if K[0, 0] <= 0 or K[1, 1] <= 0:
+        raise ValueError("intrinsics camera_matrix has non-positive focal length")
     return K, D
 
 
@@ -600,7 +623,7 @@ class CSVLogger:
         "vec_x", "vec_y", "vel_x", "vel_y",
         "dist_cm", "bbox_w", "bbox_h",
     ]
-    FLUSH_INTERVAL = 5.0  # seconds between flushes
+    FLUSH_INTERVAL = 1.0  # seconds between flushes (tradeoff: crash safety vs I/O)
 
     def __init__(self, path):
         self.file = None
@@ -727,9 +750,18 @@ def load_hsv_calibration(path: str) -> dict:
 
 
 def save_hsv_calibration(path: str, sliders: dict) -> bool:
+    """Atomic write: write to temp file, fsync, then rename."""
     try:
-        with open(path, "w") as f:
+        path_obj = Path(path)
+        tmp_path = path_obj.with_suffix(path_obj.suffix + ".tmp")
+        with open(tmp_path, "w") as f:
             json.dump(sliders, f, indent=2, sort_keys=True)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass
+        os.replace(tmp_path, path)
         log.info("Saved HSV calibration to %s", path)
         return True
     except OSError as e:
@@ -743,6 +775,33 @@ def validate_csv_path(path_str):
     resolved = Path(path_str).resolve()
     if not str(resolved).startswith(str(ALLOWED_CSV_BASE)):
         log.error("CSV path '%s' resolves outside working directory. Denied.", path_str)
+        sys.exit(1)
+    return str(resolved)
+
+
+def validate_trusted_path(path_str, kind: str, allow_external: bool = False,
+                          must_exist: bool = False) -> str:
+    """Restrict user-supplied paths to the working directory tree by default.
+
+    Prevents path traversal and loading of arbitrary files (e.g., malicious
+    pickled PyTorch weights via --yolo-model). Pass allow_external=True to
+    opt out via --allow-external-paths.
+    """
+    resolved = Path(path_str).resolve()
+    if must_exist and not resolved.exists():
+        log.error("%s path '%s' does not exist.", kind, path_str)
+        sys.exit(1)
+    if allow_external:
+        return str(resolved)
+    try:
+        resolved.relative_to(ALLOWED_CSV_BASE)
+    except ValueError:
+        log.error(
+            "%s path '%s' resolves outside the working directory. "
+            "Move the file under %s, or pass --allow-external-paths "
+            "to opt out (loading untrusted .pt weights can execute code).",
+            kind, path_str, ALLOWED_CSV_BASE,
+        )
         sys.exit(1)
     return str(resolved)
 
@@ -818,6 +877,11 @@ def parse_args():
     p.add_argument(
         "--no-save-calib", action="store_true",
         help="Do not persist HSV slider state on exit")
+    p.add_argument(
+        "--allow-external-paths", action="store_true",
+        help="Allow --yolo-model/--intrinsics/--calib outside cwd "
+             "(SECURITY: enables loading arbitrary files; .pt weights "
+             "can execute code on load)")
     return p.parse_args()
 
 
@@ -857,6 +921,24 @@ def main():
     frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cx, cy = frame_w // 2, frame_h // 2
+
+    # Validate user-controlled paths (path traversal + untrusted .pt protection)
+    allow_ext = args.allow_external_paths
+    if args.intrinsics:
+        args.intrinsics = validate_trusted_path(
+            args.intrinsics, "intrinsics", allow_external=allow_ext, must_exist=True)
+    # YOLO model: restrict by default. Ultralytics treats bare names
+    # (e.g. "yolov8n.pt") as auto-downloads — allow those through.
+    if args.detector == "yolo" and args.yolo_model:
+        ym = args.yolo_model
+        looks_like_path = (os.sep in ym) or ("/" in ym) or os.path.isabs(ym) \
+            or ym.startswith(".")
+        if looks_like_path:
+            args.yolo_model = validate_trusted_path(
+                ym, "yolo-model", allow_external=allow_ext, must_exist=True)
+    # Calibration file: restrict writes to cwd by default
+    args.calib = validate_trusted_path(
+        args.calib, "calib", allow_external=allow_ext, must_exist=False)
 
     # Camera intrinsics (needed for ArUco pose)
     if args.intrinsics:
@@ -1054,7 +1136,7 @@ def main():
                     log.info("Mask view unavailable in %s mode.", args.detector)
             elif key == ord("r"):
                 tracked.clear()
-                TrackedObject._next_id = 1
+                TrackedObject._next_id = AUTO_ID_MIN
                 log.info("Object IDs reset.")
             elif key == ord("s"):
                 for p in serial.tools.list_ports.comports():
